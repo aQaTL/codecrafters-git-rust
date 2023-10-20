@@ -86,10 +86,13 @@ fn cat_file(pretty_print: bool, object: String) -> Result<(), CatFileError> {
     let file_buffered = BufReader::new(file);
 
     let mut decoder = flate2::bufread::ZlibDecoder::new(file_buffered);
-    let mut file_contents = String::new();
-    decoder.read_to_string(&mut file_contents)?;
+    let mut file_content_bytes = Vec::new();
+	decoder.read_to_end(&mut file_content_bytes)?;
+	let null_pos = file_content_bytes.iter().position(|x| *x == 0).unwrap();
 
-    print!("{file_contents}");
+	let file_content = std::str::from_utf8(&file_content_bytes[(null_pos + 1)..]).unwrap();
+
+    print!("{file_content}");
 
     Ok(())
 }
