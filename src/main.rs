@@ -175,6 +175,7 @@ fn hash_object(path: PathBuf, write: bool) -> Result<(), HashObjectError> {
 	Ok(())
 }
 
+#[allow(dead_code)]
 enum ObjectKind<'a> {
 	Blob(Cow<'a, [u8]>),
 	Commit,
