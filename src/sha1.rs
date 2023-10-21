@@ -126,4 +126,33 @@ mod tests {
 		let hex_str = hex::encode(result);
 		assert_eq!(hex_str, "2fd4e1c67a2d28fced849ee1bb76e7391b93eb12");
 	}
+
+	#[test]
+	fn compare_with_sha1_crate() {
+		use ::sha1::Digest;
+
+		let data = "The quick brown fox jumps over the lazy dog";
+		let result = sha1(data.as_bytes());
+
+		let mut sha1_hasher = ::sha1::Sha1::new();
+		sha1_hasher.update(data.as_bytes());
+		let sha1_result = sha1_hasher.finalize();
+
+		assert_eq!(result.as_slice(), sha1_result.as_slice());
+	}
+
+	#[test]
+	fn compare_with_sha1_crate_2() {
+		use ::sha1::Digest;
+
+		let data = "Zażółć gęsią jaźń.
+		\t\t\t\t\nAla ma kota, a kot ma alę.";
+		let result = sha1(data.as_bytes());
+
+		let mut sha1_hasher = ::sha1::Sha1::new();
+		sha1_hasher.update(data.as_bytes());
+		let sha1_result = sha1_hasher.finalize();
+
+		assert_eq!(result.as_slice(), sha1_result.as_slice());
+	}
 }

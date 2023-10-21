@@ -139,7 +139,18 @@ fn hash_object(path: PathBuf, write: bool) -> Result<(), HashObjectError> {
 		path: path.clone(),
 		err,
 	})?;
-	let sha1_hash = sha1::sha1(&file_contents);
+
+	let mut encoded_file_content = Vec::new();
+	write_object(
+		ObjectKind::Blob(Cow::Borrowed(&file_contents)),
+		&mut encoded_file_content,
+	)
+	.map_err(|err| HashObjectError::OutputIo {
+		err,
+		path: path.clone(),
+	})?;
+
+	let sha1_hash = sha1::sha1(&encoded_file_content);
 	let sha1_str = hex::encode(sha1_hash);
 	println!("{sha1_str}");
 
@@ -164,12 +175,13 @@ fn hash_object(path: PathBuf, write: bool) -> Result<(), HashObjectError> {
 			path: path.clone(),
 		})?;
 
-		write_object(ObjectKind::Blob(Cow::Borrowed(&file_contents)), &mut file).map_err(
-			|err| HashObjectError::OutputIo {
+		let mut zlibencoder = ZlibEncoder::new(&mut file, flate2::Compression::default());
+		zlibencoder
+			.write_all(&encoded_file_content)
+			.map_err(|err| HashObjectError::OutputIo {
 				err,
 				path: path.clone(),
-			},
-		)?;
+			})?;
 	}
 
 	Ok(())
@@ -184,12 +196,12 @@ enum ObjectKind<'a> {
 }
 
 fn write_object<W: Write>(kind: ObjectKind, w: &mut W) -> Result<(), std::io::Error> {
-	let mut zlibencoder = ZlibEncoder::new(w, flate2::Compression::default());
 	match kind {
 		ObjectKind::Blob(blob) => {
-			let header = format!("blob {}\0", blob.len());
-			zlibencoder.write_all(header.as_bytes())?;
-			zlibencoder.write_all(&blob)?;
+			let header = format!("blob {}", blob.len());
+			w.write_all(header.as_bytes())?;
+			w.write_all(&[0_u8])?;
+			w.write_all(&blob)?;
 		}
 		_ => unimplemented!(),
 	}
