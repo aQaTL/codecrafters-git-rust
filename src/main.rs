@@ -536,7 +536,7 @@ fn read_tree_from_dir(path: &Path) -> Result<Tree<'static>, WriteTreeError> {
 
 	Ok(Tree {
 		hash: Cow::Owned(hashed_object.hash),
-		mode: path.metadata().unwrap().mode(),
+		mode: 40000,
 		name: Cow::Owned(path.display().to_string()),
 		entries,
 	})
