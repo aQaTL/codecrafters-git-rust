@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::borrow::Cow;
 use std::fs;
 use std::io::{BufReader, Read, Write};
@@ -214,7 +216,6 @@ struct HashedObject {
 	hash_str: String,
 }
 
-#[allow(dead_code)]
 enum GitObject<'a> {
 	Blob(Cow<'a, [u8]>),
 	Commit,
@@ -222,7 +223,6 @@ enum GitObject<'a> {
 	Tree(Cow<'a, [TreeEntry<'a>]>),
 }
 
-#[allow(dead_code)]
 #[derive(Clone)]
 struct TreeEntry<'a> {
 	mode: u32,
@@ -514,17 +514,15 @@ fn read_tree_from_dir(path: &Path) -> Result<Tree<'static>, WriteTreeError> {
 			continue;
 		}
 
-		println!("{}", path.display());
-
 		if path.is_file() {
-			let hashed_object = hash_object(&path, true)?;
+			let hashed_object = hash_object(path, true)?;
 			entries.push(TreeEntry {
 				mode: path.metadata().unwrap().mode(),
 				name: Cow::Owned(file_name),
 				object_hash: Cow::Owned(hashed_object.hash),
 			});
 		} else {
-			let tree = read_tree_from_dir(&path)?;
+			let tree = read_tree_from_dir(path)?;
 			entries.push(TreeEntry {
 				mode: tree.mode,
 				name: Cow::Owned(file_name),
