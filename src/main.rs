@@ -531,6 +531,7 @@ fn read_tree_from_dir(path: &Path) -> Result<Tree<'static>, WriteTreeError> {
 		}
 	}
 
+	entries.sort_by_key(|e| e.name.clone());
 	let hashed_object = hash_git_object(GitObject::Tree(Cow::Borrowed(&entries)), true)?;
 
 	Ok(Tree {
