@@ -51,7 +51,7 @@ enum Command {
 	WriteTree,
 
 	CommitTree {
-		#[arg(short, long, required = true)]
+		#[arg(required = true)]
 		tree: String,
 
 		#[arg(short, long)]
