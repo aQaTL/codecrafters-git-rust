@@ -5,6 +5,7 @@ use std::fs;
 use std::io::{BufReader, Read, Write};
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
+use std::time::UNIX_EPOCH;
 
 use clap::{Parser, Subcommand};
 use flate2::write::ZlibEncoder;
@@ -48,6 +49,17 @@ enum Command {
 	},
 
 	WriteTree,
+
+	CommitTree {
+		#[arg(short, long, required = true)]
+		tree: String,
+
+		#[arg(short, long)]
+		parent: Option<String>,
+
+		#[arg(short, long, required = true)]
+		message: String,
+	},
 }
 
 fn main() {
@@ -62,6 +74,11 @@ fn main() {
 		Command::HashObject { write, file } => hash_object_cmd(file, write).map_err(Into::into),
 		Command::LsTree { name_only, object } => ls_tree(object, name_only).map_err(Into::into),
 		Command::WriteTree => write_tree().map_err(Into::into),
+		Command::CommitTree {
+			tree,
+			parent,
+			message,
+		} => commit_tree(tree, parent, message).map_err(Into::into),
 	};
 
 	if let Err(err) = result {
@@ -79,7 +96,7 @@ enum InitError {
 fn init() -> Result<(), InitError> {
 	fs::create_dir(".git")?;
 	fs::create_dir(".git/objects")?;
-	fs::create_dir(".git/refs")?;
+	fs::create_dir_all(".git/refs/heads")?;
 	fs::write(".git/HEAD", "ref: refs/heads/master\n")?;
 	eprintln!("Initialized git directory");
 
@@ -163,6 +180,8 @@ fn hash_object(path: &Path, write: bool) -> Result<HashedObject, HashObjectError
 
 /// Encodes and hashes given [GitObject]. Returns the SHA1 hash of that object.
 fn hash_git_object(object: GitObject, write: bool) -> Result<HashedObject, HashObjectError> {
+	let is_commit = matches!(object, GitObject::Commit(_));
+
 	let mut encoded_file_content = Vec::new();
 	encode_object(object, &mut encoded_file_content).map_err(HashObjectError::EncodeObject)?;
 
@@ -203,6 +222,16 @@ fn hash_git_object(object: GitObject, write: bool) -> Result<HashedObject, HashO
 				err,
 				path: filename,
 			})?;
+
+		if is_commit {
+			let path = Path::new(".git/refs/heads/master");
+			fs::write(path, format!("{}\n", sha1_str)).map_err(|err| {
+				HashObjectError::OutputIo {
+					err,
+					path: path.to_owned(),
+				}
+			})?;
+		}
 	}
 
 	Ok(HashedObject {
@@ -218,7 +247,7 @@ struct HashedObject {
 
 enum GitObject<'a> {
 	Blob(Cow<'a, [u8]>),
-	Commit,
+	Commit(Commit),
 	Tag,
 	Tree(Cow<'a, [TreeEntry<'a>]>),
 }
@@ -240,10 +269,19 @@ impl From<IndexEntry> for TreeEntry<'static> {
 	}
 }
 
+struct Commit {
+	tree: [u8; 20],
+	parent: Option<[u8; 20]>,
+	message: String,
+	timestamp: u64,
+	author: String,
+}
+
 fn encode_object<W: Write>(kind: GitObject, w: &mut W) -> Result<(), std::io::Error> {
 	match kind {
 		GitObject::Blob(blob) => encode_blob(blob, w),
 		GitObject::Tree(entries) => encode_tree(&entries, w),
+		GitObject::Commit(commit) => encode_commit(commit, w),
 		_ => unimplemented!(),
 	}
 }
@@ -272,6 +310,30 @@ fn encode_tree<W: Write>(entries: &[TreeEntry], w: &mut W) -> Result<(), std::io
 		w.write_all(&[0])?;
 		w.write_all(entry.object_hash.as_slice())?;
 	}
+
+	Ok(())
+}
+
+fn encode_commit<W: Write>(commit: Commit, w: &mut W) -> Result<(), std::io::Error> {
+	w.write_all(b"commit ")?;
+
+	let mut temp_buf = Vec::new();
+	temp_buf.write_all(format!("tree {}\n", hex::encode(commit.tree)).as_bytes())?;
+
+	if let Some(parent) = commit.parent {
+		temp_buf.write_all(&parent)?;
+		temp_buf.write_all(b"\n")?;
+	}
+
+	let author_time = format!("{} +0100", commit.timestamp);
+	temp_buf.write_all(format!("author {} {}\n", commit.author, author_time).as_bytes())?;
+	temp_buf.write_all(format!("committer {} {}\n\n", commit.author, author_time).as_bytes())?;
+	temp_buf.write_all(commit.message.as_bytes())?;
+	temp_buf.write_all(b"\n")?;
+
+	w.write_all(temp_buf.len().to_string().as_bytes())?;
+	w.write_all(&[0_u8])?;
+	w.write_all(&temp_buf)?;
 
 	Ok(())
 }
@@ -466,6 +528,8 @@ enum WriteTreeError {
 }
 
 fn write_tree() -> Result<(), WriteTreeError> {
+	// Commented out, because test harness on CodeCrafters doesn't add files to index when doing
+	// `git add` (they are using a go implementation of git, not actual git).
 	// let index = read_index()?;
 	//
 	// let tree_entries = index
@@ -476,7 +540,7 @@ fn write_tree() -> Result<(), WriteTreeError> {
 	// let sha1_str = hash_object(GitObject::Tree(tree_entries), true)?;
 	// println!("{sha1_str}");
 
-	let tree = read_tree_from_dir(".".as_ref())?;
+	let tree = write_tree_at_dir(".".as_ref())?;
 	let hash_str = hex::encode(tree.hash.as_slice());
 	println!("{hash_str}",);
 
@@ -490,7 +554,7 @@ struct Tree<'a> {
 	entries: Vec<TreeEntry<'a>>,
 }
 
-fn read_tree_from_dir(path: &Path) -> Result<Tree<'static>, WriteTreeError> {
+fn write_tree_at_dir(path: &Path) -> Result<Tree<'static>, WriteTreeError> {
 	let mut entries = Vec::new();
 
 	let read_dir = fs::read_dir(path)?;
@@ -522,7 +586,7 @@ fn read_tree_from_dir(path: &Path) -> Result<Tree<'static>, WriteTreeError> {
 				object_hash: Cow::Owned(hashed_object.hash),
 			});
 		} else {
-			let tree = read_tree_from_dir(path)?;
+			let tree = write_tree_at_dir(path)?;
 			entries.push(TreeEntry {
 				mode: tree.mode,
 				name: Cow::Owned(file_name),
@@ -671,4 +735,52 @@ fn read_index() -> Result<Index, ReadIndexError> {
 		version,
 		entries,
 	})
+}
+
+#[derive(Debug, Error)]
+enum CommitTreeError {
+	#[error("Hash object: {0}")]
+	HashObject(#[from] HashObjectError),
+
+	#[error("Invalid tree object: {0}")]
+	InvalidTreeSha1(hex::FromHexError),
+
+	#[error("Invalid parent object: {0}")]
+	InvalidParentSha1(hex::FromHexError),
+}
+
+fn commit_tree(
+	tree_hash_str: String,
+	parent_hash_str: Option<String>,
+	message: String,
+) -> Result<(), CommitTreeError> {
+	let timestamp = UNIX_EPOCH.elapsed().unwrap().as_secs();
+
+	let mut tree = [0_u8; 20];
+	hex::decode_to_slice(tree_hash_str, &mut tree).map_err(CommitTreeError::InvalidTreeSha1)?;
+
+	let parent = match parent_hash_str {
+		Some(parent_hash_str) => {
+			let mut parent = [0_u8; 20];
+			hex::decode_to_slice(parent_hash_str.as_bytes(), &mut parent)
+				.map_err(CommitTreeError::InvalidTreeSha1)?;
+			Some(parent)
+		}
+		None => None,
+	};
+
+	let sha1 = hash_git_object(
+		GitObject::Commit(Commit {
+			tree,
+			parent,
+			message,
+			timestamp,
+			author: "Foo Bar <foo@bar.com>".to_string(),
+		}),
+		true,
+	)?;
+
+	println!("{}", sha1.hash_str);
+
+	Ok(())
 }
