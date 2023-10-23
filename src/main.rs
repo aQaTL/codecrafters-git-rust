@@ -321,8 +321,7 @@ fn encode_commit<W: Write>(commit: Commit, w: &mut W) -> Result<(), std::io::Err
 	temp_buf.write_all(format!("tree {}\n", hex::encode(commit.tree)).as_bytes())?;
 
 	if let Some(parent) = commit.parent {
-		temp_buf.write_all(&parent)?;
-		temp_buf.write_all(b"\n")?;
+		temp_buf.write_all(format!("parent {}\n", hex::encode(parent)).as_bytes())?;
 	}
 
 	let author_time = format!("{} +0100", commit.timestamp);
